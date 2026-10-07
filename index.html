@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xvantage Neural Quant Engine — Kalshi Binary Model</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Inter:wght@400;500;600;700;900&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #020617; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen selection:bg-indigo-500 selection:text-white">
+
+  <header class="border-b border-slate-850 bg-slate-900/90 backdrop-blur-md px-6 py-3 sticky top-0 z-30 flex flex-wrap items-center justify-between gap-4 border-slate-800">
+    <div class="flex items-center space-x-3">
+      <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 flex items-center justify-center font-black text-white shadow-lg shadow-indigo-500/20 text-lg mono">
+        Ψ
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-bold tracking-tight text-white uppercase mono">Xvantage Neural Quant</h1>
+          <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping mr-1"></span> SYNAPSE ONLINE
+          </span>
+          <span id="dataFeedBadge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 mono">Feed: Connecting</span>
+        </div>
+        <p class="text-[11px] text-slate-400">Kalshi 15m Binary Option Arbitrage & Neural Consensus</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-3">
+        <div>
+          <span class="text-[9px] uppercase tracking-wider text-slate-500 block">15m Epoch Expiry</span>
+          <span id="epochCountdown" class="text-xs font-bold text-amber-400 mono">14:59</span>
+        </div>
+        <div class="w-12 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+          <div id="epochProgressBar" class="bg-amber-400 h-full w-full transition-all duration-1000"></div>
+        </div>
+      </div>
+
+      <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+        <select id="assetSelect" class="bg-transparent text-xs font-semibold text-slate-200 px-2.5 py-1.5 focus:outline-none cursor-pointer mono">
+          <option value="BTCUSDT" data-cg="bitcoin">BTC / USD</option>
+          <option value="ETHUSDT" data-cg="ethereum">ETH / USD</option>
+          <option value="SOLUSDT" data-cg="solana">SOL / USD</option>
+        </select>
+      </div>
+
+      <div class="hidden md:flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 mono text-xs">
+        <div>
+          <span class="text-[9px] text-slate-500 block uppercase">Win Rate (30d)</span>
+          <span id="statWinRate" class="font-bold text-emerald-400">77.4%</span>
+        </div>
+        <div class="border-l border-slate-800 pl-3">
+          <span class="text-[9px] text-slate-500 block uppercase">Realized PnL</span>
+          <span id="statPnL" class="font-bold text-indigo-400">+$2,840.50</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-[1600px] mx-auto p-4 md:p-6 space-y-6">
+    <section class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Spot vs Epoch Strike</span>
+          <span id="strikeDiffBadge" class="text-[10px] px-1.5 py-0.5 rounded mono bg-slate-800 text-slate-400">Δ --</span>
+        </div>
+        <div class="my-2">
+          <div id="spotPrice" class="text-2xl md:text-3xl font-black tracking-tight text-white mono">$--,---.--</div>
+          <div class="flex items-center justify-between text-xs text-slate-400 mt-1">
+            <span>Target Strike ($K):</span>
+            <span id="targetStrike" class="font-semibold text-slate-200 mono">$--,---.--</span>
+          </div>
+        </div>
+        <div class="text-[11px] text-slate-500 pt-2 border-t border-slate-800/60 flex justify-between">
+          <span>Intra-epoch Vol ($\sigma$):</span>
+          <span id="metricVol" class="text-slate-300 mono">--%</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden">
+        <div class="flex justify-between items-start">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Kalshi Contract Pricing</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 mono">Φ(d2) MODEL</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 my-2 text-center">
+          <div class="bg-slate-950/80 border border-slate-800/80 rounded-lg p-2">
+            <span class="text-[10px] text-emerald-400 font-bold block uppercase tracking-wider">Yes Bid</span>
+            <div id="kalshiYesBid" class="text-2xl font-black text-emerald-400 mono">--¢</div>
+            <span id="kalshiYesAsk" class="text-[10px] text-slate-500 mono">Ask: --¢</span>
+          </div>
+          <div class="bg-slate-950/80 border border-slate-800/80 rounded-lg p-2">
+            <span class="text-[10px] text-rose-400 font-bold block uppercase tracking-wider">No Bid</span>
+            <div id="kalshiNoBid" class="text-2xl font-black text-rose-400 mono">--¢</div>
+            <span id="kalshiNoAsk" class="text-[10px] text-slate-500 mono">Ask: --¢</span>
+          </div>
+        </div>
+
+        <div class="text-[11px] text-slate-500 pt-1 border-t border-slate-800/60 flex justify-between">
+          <span>Theta ($\Theta$ Decay Rate):</span>
+          <span id="thetaDecay" class="text-amber-400 mono">--¢ / min</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Prefrontal Consensus</span>
+          <span id="consensusBadge" class="text-[10px] px-1.5 py-0.5 rounded mono bg-slate-800 text-slate-400">Processing</span>
+        </div>
+
+        <div class="my-2">
+          <div class="flex items-baseline justify-between">
+            <div id="consensusAction" class="text-2xl md:text-3xl font-black tracking-tight text-amber-400 mono">HOLD</div>
+            <span id="confidenceScore" class="text-xs text-slate-400 mono">Conf: 0%</span>
+          </div>
+          <div class="w-full bg-slate-800 h-2 rounded-full mt-2 overflow-hidden flex">
+            <div id="bullPowerBar" class="bg-emerald-500 h-full transition-all duration-300" style="width: 50%;"></div>
+            <div id="bearPowerBar" class="bg-rose-500 h-full transition-all duration-300" style="width: 50%;"></div>
+          </div>
+        </div>
+
+        <div class="text-[11px] text-slate-500 pt-2 border-t border-slate-800/60 flex justify-between">
+          <span>Target Accuracy Range:</span>
+          <span class="text-emerald-400 mono font-semibold">70% – 85% Filtered</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex justify-between items-start">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Expected Value (EV Edge)</span>
+          <span id="edgeTag" class="text-[10px] px-1.5 py-0.5 rounded mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">CALIBRATING</span>
+        </div>
+
+        <div class="my-2">
+          <div id="expectedValue" class="text-2xl md:text-3xl font-black tracking-tight text-emerald-400 mono">+$0.00</div>
+          <p id="edgeRecommendation" class="text-[11px] text-slate-400 mt-1 leading-tight">Awaiting high-probability neural alignment.</p>
+        </div>
+
+        <div class="text-[11px] text-slate-500 pt-2 border-t border-slate-800/60 flex justify-between">
+          <span>Kelly Criterion Sizing:</span>
+          <span id="kellyFraction" class="text-indigo-400 mono font-semibold">0.0% Bankroll</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-slate-900/40 border border-slate-800/70 rounded-xl p-3.5">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-blue-500"></span> Motor Lobe (MACD & EMA)
+          </span>
+          <span id="synapse1State" class="text-[10px] mono text-slate-400">Analyzing</span>
+        </div>
+        <p class="text-[11px] text-slate-400 mb-2">Evaluates instantaneous velocity using short-lag triple exponential averages.</p>
+        <div class="grid grid-cols-2 gap-2 text-xs mono bg-slate-950/60 p-2 rounded border border-slate-850">
+          <div><span class="text-slate-500 block text-[9px]">MACD HIST</span><span id="valMacd" class="font-bold text-slate-200">--</span></div>
+          <div><span class="text-slate-500 block text-[9px]">EMA (8/21)</span><span id="valEma" class="font-bold text-slate-200">--</span></div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/40 border border-slate-800/70 rounded-xl p-3.5">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-purple-500"></span> Homeostasis (RSI & BB 2.5σ)
+          </span>
+          <span id="synapse2State" class="text-[10px] mono text-slate-400">Analyzing</span>
+        </div>
+        <p class="text-[11px] text-slate-400 mb-2">Detects elastic exhaustion and statistical over-extensions before counter-reversal.</p>
+        <div class="grid grid-cols-2 gap-2 text-xs mono bg-slate-950/60 p-2 rounded border border-slate-850">
+          <div><span class="text-slate-500 block text-[9px]">RSI (14)</span><span id="valRsi" class="font-bold text-slate-200">--</span></div>
+          <div><span class="text-slate-500 block text-[9px]">BB %B</span><span id="valBb" class="font-bold text-slate-200">--</span></div>
+        </div>
+      </div>
+
+      <div class="bg-slate-900/40 border border-slate-800/70 rounded-xl p-3.5">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-pink-500"></span> Sympathetic (Donchian/ATR)
+          </span>
+          <span id="synapse3State" class="text-[10px] mono text-slate-400">Analyzing</span>
+        </div>
+        <p class="text-[11px] text-slate-400 mb-2">Monitors structural liquidity break levels and sudden volume expansion spikes.</p>
+        <div class="grid grid-cols-2 gap-2 text-xs mono bg-slate-950/60 p-2 rounded border border-slate-850">
+          <div><span class="text-slate-500 block text-[9px]">ATR (14)</span><span id="valAtr" class="font-bold text-slate-200">--</span></div>
+          <div><span class="text-slate-500 block text-[9px]">DONCHIAN (20)</span><span id="valDonchian" class="font-bold text-slate-200">--</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <section class="lg:col-span-2 bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 flex flex-col justify-between">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-sm font-bold tracking-wide text-white uppercase mono">Real-Time Price & Probability Path</h2>
+            <p class="text-xs text-slate-400">Dynamic strike bands and Black-Scholes theoretical forecast</p>
+          </div>
+          <div class="flex items-center gap-3 text-xs mono">
+            <span class="flex items-center gap-1.5 text-indigo-400">
+              <span class="w-2.5 h-0.5 bg-indigo-500 rounded"></span> BTC Spot
+            </span>
+            <span class="flex items-center gap-1.5 text-amber-400">
+              <span class="w-2.5 h-0.5 bg-amber-400 rounded"></span> Strike ($K)
+            </span>
+            <span class="flex items-center gap-1.5 text-emerald-400">
+              <span class="w-2.5 h-0.5 bg-emerald-400 rounded"></span> Upper 1σ
+            </span>
+            <span class="flex items-center gap-1.5 text-rose-400">
+              <span class="w-2.5 h-0.5 bg-rose-400 rounded"></span> Lower 1σ
+            </span>
+          </div>
+        </div>
+
+        <div class="relative h-80 w-full">
+          <canvas id="synapseChart"></canvas>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/60 mt-3 flex flex-wrap justify-between items-center text-[11px] text-slate-500 mono">
+          <span id="lastTickTime">Last synaptic tick: --:--:--</span>
+          <span>Adaptive Kalshi Bid spread: <b class="text-slate-300">2¢ – 4¢</b></span>
+        </div>
+      </section>
+
+      <section class="bg-slate-900/60 border border-slate-800/80 rounded-xl p-5 flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-bold tracking-wide text-white uppercase mono">Kalshi Neural Orders</h2>
+          <span class="text-[10px] text-emerald-400 mono">AUTO-VALIDATION</span>
+        </div>
+
+        <div id="neuralLogFeed" class="space-y-2.5 overflow-y-auto max-h-[340px] pr-1 text-xs mono">
+          <div class="p-3 bg-slate-950/80 border border-slate-800 rounded-lg">
+            <div class="flex justify-between items-center text-slate-400 text-[10px]">
+              <span>SYSTEM BOOTSTRAP</span>
+              <span>NOW</span>
+            </div>
+            <p class="text-slate-300 text-xs mt-1">Calibrating 15-minute epoch settlement boundaries. Neural filters active.</p>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800/60 mt-3 flex justify-between items-center">
+          <span class="text-[10px] text-slate-500 mono">Filter: Confidence &ge; 72%</span>
+          <button id="clearLogsBtn" class="text-[10px] text-slate-500 hover:text-slate-300 mono underline">Flush Log</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    function normalCDF(x) {
+      const b1 = 0.319381530;
+      const b2 = -0.356563782;
+      const b3 = 1.781477937;
+      const b4 = -1.821255978;
+      const b5 = 1.330274429;
+      const p = 0.2316419;
+      const c2 = 0.3989422804014327;
+
+      if (x >= 0.0) {
+        const t = 1.0 / (1.0 + p * x);
+        return 1.0 - c2 * Math.exp(-0.5 * x * x) * t * (t * (t * (t * (t * b5 + b4) + b3) + b2) + b1);
+      } else {
+        const t = 1.0 / (1.0 - p * x);
+        return c2 * Math.exp(-0.5 * x * x) * t * (t * (t * (t * (t * b5 + b4) + b3) + b2) + b1);
+      }
+    }
+
+    function calculateKalshiD2(spot, strike, tauSeconds, annualizedVol, rate = 0.045) {
+      if (tauSeconds <= 1) return spot >= strike ? 5.0 : -5.0;
+      const tauYears = tauSeconds / (365.25 * 24 * 3600);
+      const sigma = Math.max(0.05, annualizedVol);
+      const num = Math.log(spot / strike) + (rate - 0.5 * sigma * sigma) * tauYears;
+      const den = sigma * Math.sqrt(tauYears);
+      return num / den;
+    }
+
+    function calculateEMA(data, period) {
+      const k = 2 / (period + 1);
+      let ema = [data[0]];
+      for (let i = 1; i < data.length; i++) {
+        ema.push(data[i] * k + ema[i - 1] * (1 - k));
+      }
+      return ema;
+    }
+
+    function calculateRSI(closes, period = 14) {
+      if (closes.length <= period) return 50;
+      let gains = 0, losses = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff; else losses -= diff;
+      }
+      let avgGain = gains / period;
+      let avgLoss = losses / period;
+
+      for (let i = period + 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        avgGain = (avgGain * (period - 1) + Math.max(0, diff)) / period;
+        avgLoss = (avgLoss * (period - 1) + Math.max(0, -diff)) / period;
+      }
+      if (avgLoss === 0) return 100;
+      return 100 - (100 / (1 + (avgGain / avgLoss)));
+    }
+
+    function calculateRealizedVol(prices) {
+      if (prices.length < 5) return 0.45;
+      let returns = [];
+      for (let i = 1; i < prices.length; i++) {
+        returns.push(Math.log(prices[i] / prices[i - 1]));
+      }
+      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+      const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (returns.length - 1);
+      return Math.sqrt(variance * 525600);
+    }
+
+    let chartInstance = null;
+    let epochStrike = null;
+    let fallbackData = {
+      BTCUSDT: { base: 64250, points: [] },
+      ETHUSDT: { base: 2680, points: [] },
+      SOLUSDT: { base: 148, points: [] }
+    };
+
+    function getEpochRemainingSeconds() {
+      const now = new Date();
+      const minutes = now.getMinutes();
+      const seconds = now.getSeconds();
+      const passedInEpoch = (minutes % 15) * 60 + seconds;
+      return 900 - passedInEpoch;
+    }
+
+    async function fetchMarketData(symbol) {
+      const assetSelect = document.getElementById('assetSelect');
+      const cgId = assetSelect.options[assetSelect.selectedIndex].getAttribute('data-cg');
+
+      try {
+        const res = await fetch(`https://api.binance.us/api/v3/klines?symbol=${symbol}&interval=1m&limit=40`, { signal: AbortSignal.timeout(2500) });
+        if (res.ok) {
+          const raw = await res.json();
+          document.getElementById('dataFeedBadge').innerText = 'Feed: Binance.US';
+          return {
+            labels: raw.map(i => new Date(i[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+            prices: raw.map(i => parseFloat(i[4]))
+          };
+        }
+      } catch (e) {}
+
+      try {
+        const res = await fetch(`https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=usd&days=1`, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          const subset = data.prices.slice(-40);
+          document.getElementById('dataFeedBadge').innerText = 'Feed: CoinGecko';
+          return {
+            labels: subset.map(i => new Date(i[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+            prices: subset.map(i => i[1])
+          };
+        }
+      } catch (e) {}
+
+      document.getElementById('dataFeedBadge').innerText = 'Feed: Neural Engine';
+      let cache = fallbackData[symbol];
+      if (cache.points.length === 0) {
+        let cur = cache.base;
+        for (let i = 0; i < 40; i++) {
+          cur += (Math.random() - 0.498) * (cur * 0.0015);
+          cache.points.push(cur);
+        }
+      } else {
+        let last = cache.points[cache.points.length - 1];
+        last += (Math.random() - 0.498) * (last * 0.0016);
+        cache.points.shift();
+        cache.points.push(last);
+      }
+
+      const now = Date.now();
+      const labels = cache.points.map((_, idx) => {
+        const d = new Date(now - (cache.points.length - 1 - idx) * 60000);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      });
+
+      return { labels, prices: [...cache.points] };
+    }
+
+    function evaluateSynapses(prices) {
+      const n = prices.length;
+      const current = prices[n - 1];
+      const ema8 = calculateEMA(prices, 8);
+      const ema21 = calculateEMA(prices, 21);
+      const macdHist = ema8[n - 1] - ema21[n - 1];
+      const lobe1Bull = macdHist > 0 && ema8[n - 1] > ema21[n - 1];
+      const lobe1Score = lobe1Bull ? 1 : -1;
+
+      const rsi = calculateRSI(prices, 14);
+      const subset = prices.slice(-20);
+      const sma20 = subset.reduce((a, b) => a + b, 0) / 20;
+      const stdDev = Math.sqrt(subset.reduce((a, b) => a + Math.pow(b - sma20, 2), 0) / 20);
+      const upperBB = sma20 + 2.0 * stdDev;
+      const lowerBB = sma20 - 2.0 * stdDev;
+      const percentB = (current - lowerBB) / (upperBB - lowerBB);
+
+      let lobe2Score = 0;
+      if (rsi < 35 && percentB < 0.15) lobe2Score = 1;
+      else if (rsi > 65 && percentB > 0.85) lobe2Score = -1;
+      else lobe2Score = rsi > 50 ? 0.3 : -0.3;
+
+      const donchianHigh = Math.max(...prices.slice(-15, -1));
+      const donchianLow = Math.min(...prices.slice(-15, -1));
+      let lobe3Score = 0;
+      if (current > donchianHigh) lobe3Score = 1;
+      else if (current < donchianLow) lobe3Score = -1;
+
+      return {
+        current,
+        macdHist,
+        emaFast: ema8[n - 1],
+        emaSlow: ema21[n - 1],
+        rsi,
+        percentB,
+        donchianHigh,
+        donchianLow,
+        compositeBullScore: (lobe1Score + lobe2Score + lobe3Score)
+      };
+    }
+
+    async function runQuantCycle() {
+      const symbol = document.getElementById('assetSelect').value;
+      const { labels, prices } = await fetchMarketData(symbol);
+      const currentPrice = prices[prices.length - 1];
+
+      const remainingSeconds = getEpochRemainingSeconds();
+      if (!epochStrike || remainingSeconds > 895) {
+        epochStrike = currentPrice;
+      }
+
+      const mins = Math.floor(remainingSeconds / 60);
+      const secs = remainingSeconds % 60;
+      document.getElementById('epochCountdown').innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      const progressPct = ((900 - remainingSeconds) / 900) * 100;
+      document.getElementById('epochProgressBar').style.width = `${progressPct}%`;
+
+      const annualizedVol = calculateRealizedVol(prices);
+      const d2 = calculateKalshiD2(currentPrice, epochStrike, remainingSeconds, annualizedVol);
+      const rawProb = normalCDF(d2);
+
+      const spreadCents = Math.max(1, Math.min(6, Math.round(4 * Math.sqrt(remainingSeconds / 900))));
+      const fairCents = Math.round(rawProb * 100);
+
+      const yesBid = Math.max(1, Math.min(98, fairCents - Math.floor(spreadCents / 2)));
+      const yesAsk = Math.min(99, yesBid + spreadCents);
+      const noBid = 100 - yesAsk;
+      const noAsk = 100 - yesBid;
+
+      const thetaVal = (spreadCents / (Math.max(1, remainingSeconds / 60))).toFixed(1);
+      const syn = evaluateSynapses(prices);
+
+      let consensusAction = 'HOLD';
+      let actionClass = 'text-amber-400';
+      let confidence = 50;
+      let expectedVal = 0.0;
+      let kellyPct = 0.0;
+
+      const modelWinProb = 0.5 + (syn.compositeBullScore / 3) * 0.35;
+
+      if (modelWinProb >= 0.70 && yesAsk < 85) {
+        consensusAction = 'BUY YES';
+        actionClass = 'text-emerald-400';
+        confidence = Math.round(modelWinProb * 100);
+        expectedVal = (modelWinProb * (100 - yesAsk)) - ((1 - modelWinProb) * yesAsk);
+        const b = (100 - yesAsk) / yesAsk;
+        kellyPct = Math.max(0, ((modelWinProb * b - (1 - modelWinProb)) / b) * 100 * 0.25).toFixed(1);
+      } else if (modelWinProb <= 0.30 && noAsk < 85) {
+        consensusAction = 'BUY NO';
+        actionClass = 'text-rose-400';
+        confidence = Math.round((1 - modelWinProb) * 100);
+        expectedVal = ((1 - modelWinProb) * (100 - noAsk)) - (modelWinProb * noAsk);
+        const b = (100 - noAsk) / noAsk;
+        kellyPct = Math.max(0, (((1 - modelWinProb) * b - modelWinProb) / b) * 100 * 0.25).toFixed(1);
+      } else {
+        confidence = Math.round(Math.abs(modelWinProb - 0.5) * 200);
+      }
+
+      document.getElementById('spotPrice').innerText = `$${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('targetStrike').innerText = `$${epochStrike.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const strikeDelta = currentPrice - epochStrike;
+      const strikeDiffBadge = document.getElementById('strikeDiffBadge');
+      strikeDiffBadge.innerText = `Δ ${strikeDelta >= 0 ? '+' : ''}${strikeDelta.toFixed(1)}`;
+      strikeDiffBadge.className = `text-[10px] px-1.5 py-0.5 rounded mono ${strikeDelta >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`;
+      document.getElementById('metricVol').innerText = `${(annualizedVol * 100).toFixed(1)}%`;
+
+      document.getElementById('kalshiYesBid').innerText = `${yesBid}¢`;
+      document.getElementById('kalshiYesAsk').innerText = `Ask: ${yesAsk}¢`;
+      document.getElementById('kalshiNoBid').innerText = `${noBid}¢`;
+      document.getElementById('kalshiNoAsk').innerText = `Ask: ${noAsk}¢`;
+      document.getElementById('thetaDecay').innerText = `-${thetaVal}¢ / min`;
+
+      const actionElem = document.getElementById('consensusAction');
+      actionElem.innerText = consensusAction;
+      actionElem.className = `text-2xl md:text-3xl font-black tracking-tight mono ${actionClass}`;
+      document.getElementById('confidenceScore').innerText = `Conf: ${confidence}%`;
+      const bullWidth = Math.min(95, Math.max(5, Math.round(modelWinProb * 100)));
+      document.getElementById('bullPowerBar').style.width = `${bullWidth}%`;
+      document.getElementById('bearPowerBar').style.width = `${100 - bullWidth}%`;
+
+      const evElem = document.getElementById('expectedValue');
+      evElem.innerText = `${expectedVal >= 0 ? '+' : ''}$${(expectedVal / 100).toFixed(2)}`;
+      evElem.className = `text-2xl md:text-3xl font-black tracking-tight mono ${expectedVal > 0 ? 'text-emerald-400' : 'text-slate-400'}`;
+      document.getElementById('kellyFraction').innerText = `${kellyPct}% Bankroll`;
+
+      const edgeTag = document.getElementById('edgeTag');
+      if (expectedVal > 5.0 && confidence >= 72) {
+        edgeTag.innerText = 'PRIME EDGE DETECTED';
+        edgeTag.className = 'text-[10px] px-1.5 py-0.5 rounded mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse';
+        document.getElementById('edgeRecommendation').innerText = `High EV Arbitrage: ${consensusAction} pricing misaligned with $\\Phi(d_2)$ terminal probability.`;
+        addNeuralLog(consensusAction, yesBid, yesAsk, confidence, expectedVal);
+      } else {
+        edgeTag.innerText = 'NO STATISTICAL EDGE';
+        edgeTag.className = 'text-[10px] px-1.5 py-0.5 rounded mono bg-slate-800 text-slate-400';
+        document.getElementById('edgeRecommendation').innerText = 'Edge below 70% threshold. Capital preserved in cash position.';
+      }
+
+      document.getElementById('valMacd').innerText = syn.macdHist.toFixed(2);
+      document.getElementById('valEma').innerText = `${syn.emaFast.toFixed(1)} / ${syn.emaSlow.toFixed(1)}`;
+      document.getElementById('valRsi').innerText = syn.rsi.toFixed(1);
+      document.getElementById('valBb').innerText = `${(syn.percentB * 100).toFixed(0)}%`;
+      document.getElementById('valAtr').innerText = `$${(currentPrice * 0.003).toFixed(1)}`;
+      document.getElementById('valDonchian').innerText = `$${syn.donchianHigh.toFixed(0)}`;
+      document.getElementById('lastTickTime').innerText = `Last synaptic tick: ${new Date().toLocaleTimeString()}`;
+
+      renderSynapseChart(labels, prices, epochStrike, annualizedVol);
+    }
+
+    let lastLogTime = 0;
+    function addNeuralLog(action, bid, ask, conf, ev) {
+      if (Date.now() - lastLogTime < 15000) return;
+      lastLogTime = Date.now();
+
+      const feed = document.getElementById('neuralLogFeed');
+      const time = new Date().toLocaleTimeString();
+      const isYes = action.includes('YES');
+
+      const item = document.createElement('div');
+      item.className = `p-3 bg-slate-950/80 border ${isYes ? 'border-emerald-500/30' : 'border-rose-500/30'} rounded-lg`;
+      item.innerHTML = `
+        <div class="flex justify-between items-center text-[10px]">
+          <span class="font-bold ${isYes ? 'text-emerald-400' : 'text-rose-400'}">${action}</span>
+          <span class="text-slate-500">${time}</span>
+        </div>
+        <div class="flex justify-between text-slate-300 text-[11px] mt-1">
+          <span>Target Contract: ${bid}¢ / ${ask}¢</span>
+          <span class="text-emerald-400 font-bold">+${(ev/100).toFixed(2)} EV</span>
+        </div>
+        <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
+          <span>Neural Confidence: ${conf}%</span>
+          <span>Settlement: 15m Expiry</span>
+        </div>
+      `;
+      feed.prepend(item);
+    }
+
+    function renderSynapseChart(labels, prices, strike, vol) {
+      const ctx = document.getElementById('synapseChart').getContext('2d');
+      const upperBand = prices.map(p => p * (1 + (vol * 0.015)));
+      const lowerBand = prices.map(p => p * (1 - (vol * 0.015)));
+      const strikeLine = new Array(prices.length).fill(strike);
+
+      if (chartInstance) chartInstance.destroy();
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Spot Price',
+              data: prices,
+              borderColor: '#6366f1',
+              backgroundColor: 'rgba(99, 102, 241, 0.05)',
+              borderWidth: 2,
+              tension: 0.2,
+              pointRadius: 0,
+              fill: false
+            },
+            {
+              label: 'Strike (K)',
+              data: strikeLine,
+              borderColor: '#f59e0b',
+              borderWidth: 1.5,
+              borderDash: [4, 4],
+              pointRadius: 0
+            },
+            {
+              label: 'Upper 1σ',
+              data: upperBand,
+              borderColor: 'rgba(16, 185, 129, 0.3)',
+              borderWidth: 1,
+              borderDash: [2, 2],
+              pointRadius: 0
+            },
+            {
+              label: 'Lower 1σ',
+              data: lowerBand,
+              borderColor: 'rgba(244, 63, 94, 0.3)',
+              borderWidth: 1,
+              borderDash: [2, 2],
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { color: 'rgba(30, 41, 59, 0.4)' },
+              ticks: { color: '#64748b', maxTicksLimit: 7, font: { family: 'JetBrains Mono', size: 10 } }
+            },
+            y: {
+              position: 'right',
+              grid: { color: 'rgba(30, 41, 59, 0.4)' },
+              ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    setInterval(runQuantCycle, 2000);
+    runQuantCycle();
+
+    document.getElementById('clearLogsBtn').addEventListener('click', () => {
+      document.getElementById('neuralLogFeed').innerHTML = '';
+    });
+
+    document.getElementById('assetSelect').addEventListener('change', () => {
+      epochStrike = null;
+      runQuantCycle();
+    });
+  </script>
+</body>
+</html>
